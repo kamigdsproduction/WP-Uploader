@@ -13,7 +13,6 @@
     <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
 
     <style>
-        /* Mengatur tinggi minimal area penulisan editor Quill */
         .ql-editor {
             min-height: 280px;
             font-size: 16px;
@@ -84,7 +83,6 @@
     </div>
 
     <script>
-        // Inisialisasi Quill Editor dengan Toolbar Lengkap
         const quill = new Quill('#quillEditor', {
             theme: 'snow',
             placeholder: 'Tuliskan artikel Anda di sini...',
@@ -111,7 +109,6 @@
             const log = document.getElementById('logArea');
             const btnSubmit = document.getElementById('btnSubmit');
 
-            // Ambil konten HTML dari Quill Editor
             const contentHtml = quill.root.innerHTML;
 
             if (!rawUrl || !user || !pass || !title) {
@@ -119,36 +116,29 @@
                 return;
             }
 
-            // Bersihkan URL dari akhiran slash
             const url = rawUrl.replace(/\/$/, "");
 
-            // Tampilkan status loading
             btnSubmit.disabled = true;
             btnSubmit.classList.add('opacity-50', 'cursor-not-allowed');
             log.classList.remove('hidden', 'bg-red-50', 'bg-green-50', 'text-red-700', 'text-green-700');
             log.classList.add('bg-blue-50', 'text-blue-700');
             log.innerText = "Memproses pengiriman...";
 
-            // Format Otentikasi Basic Auth
             const authHeader = 'Basic ' + btoa(user + ':' + pass);
-            
-            // Proxy CORS untuk melewati blokir 404/firewall pada request POST
-            const proxyUrl = "https://corsproxy.io/?";
-
             let mediaId = null;
 
             try {
-                // Step 1: Upload Gambar Utama (jika ada file yang dipilih)
+                // Step 1: Upload Gambar Utama (Direct Request tanpa Proxy)
                 if (imageFile) {
                     log.innerText = "Mengunggah gambar utama ke WordPress Media Library...";
                     const formData = new FormData();
                     formData.append('file', imageFile);
 
                     const targetMediaUrl = `${url}/index.php?rest_route=/wp/v2/media`;
-                    const imgRes = await fetch(proxyUrl + encodeURIComponent(targetMediaUrl), {
+                    const imgRes = await fetch(targetMediaUrl, {
                         method: 'POST',
                         headers: { 
-                            'Authorization': authHeader 
+                            'Authorization': authHeader
                         },
                         body: formData
                     });
@@ -161,7 +151,7 @@
                     mediaId = imgData.id;
                 }
 
-                // Step 2: Publish Artikel ke WordPress
+                // Step 2: Publish Artikel ke WordPress (Direct Request tanpa Proxy)
                 log.innerText = "Menerbitkan artikel ke WordPress...";
                 const postPayload = {
                     title: title,
@@ -171,7 +161,7 @@
                 };
 
                 const targetPostUrl = `${url}/index.php?rest_route=/wp/v2/posts`;
-                const postRes = await fetch(proxyUrl + encodeURIComponent(targetPostUrl), {
+                const postRes = await fetch(targetPostUrl, {
                     method: 'POST',
                     headers: {
                         'Authorization': authHeader,
@@ -187,18 +177,15 @@
 
                 const postData = await postRes.json();
 
-                // Tampilkan pesan sukses
                 log.classList.remove('bg-blue-50', 'text-blue-700');
                 log.classList.add('bg-green-50', 'text-green-700');
                 log.innerHTML = `<strong>Berhasil!</strong> Artikel telah diterbitkan.<br><a href="${postData.link}" target="_blank" class="underline font-semibold mt-1 inline-block">Buka Artikel (${postData.link})</a>`;
 
             } catch (err) {
-                // Tampilkan pesan error
                 log.classList.remove('bg-blue-50', 'text-blue-700');
                 log.classList.add('bg-red-50', 'text-red-700');
                 log.innerText = "Terjadi Kesalahan: " + err.message;
             } finally {
-                // Kembalikan tombol ke kondisi semula
                 btnSubmit.disabled = false;
                 btnSubmit.classList.remove('opacity-50', 'cursor-not-allowed');
             }
