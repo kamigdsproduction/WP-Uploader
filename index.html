@@ -1,79 +1,208 @@
-async function publishToWordPress() {
-    const url = document.getElementById('wpUrl').value.replace(/\/$/, "");
-    const user = document.getElementById('wpUser').value;
-    const pass = document.getElementById('wpPass').value;
-    const title = document.getElementById('postTitle').value;
-    const imageFile = document.getElementById('postImage').files[0];
-    const status = document.getElementById('postStatus').value;
-    const log = document.getElementById('logArea');
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WordPress Instant Auto-Publisher</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Quill.js WYSIWYG Editor CDN -->
+    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+    <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
 
-    const contentHtml = quill.root.innerHTML;
-
-    if (!url || !user || !pass || !title) {
-        alert("Harap isi URL, Username, Password, dan Judul Artikel!");
-        return;
-    }
-
-    log.classList.remove('hidden', 'bg-red-50', 'bg-green-50', 'text-red-700', 'text-green-700');
-    log.classList.add('bg-blue-50', 'text-blue-700');
-    log.innerText = "Memproses pengiriman...";
-
-    const authHeader = 'Basic ' + btoa(user + ':' + pass);
-    let mediaId = null;
-
-    try {
-        // Step 1: Upload Gambar (Menggunakan format ?rest_route=)
-        if (imageFile) {
-            log.innerText = "Mengunggah gambar ke WordPress...";
-            const formData = new FormData();
-            formData.append('file', imageFile);
-
-            const imgRes = await fetch(`${url}/?rest_route=/wp/v2/media`, {
-                method: 'POST',
-                headers: { 'Authorization': authHeader },
-                body: formData
-            });
-
-            if (!imgRes.ok) {
-                const errData = await imgRes.json().catch(() => ({}));
-                throw new Error(errData.message || `Gagal upload gambar (Status ${imgRes.status})`);
-            }
-            const imgData = await imgRes.json();
-            mediaId = imgData.id;
+    <style>
+        /* Mengatur tinggi minimal area penulisan editor Quill */
+        .ql-editor {
+            min-height: 280px;
+            font-size: 16px;
+            line-height: 1.6;
         }
+    </style>
+</head>
+<body class="bg-slate-100 min-h-screen p-4 md:p-8 font-sans">
+    <div class="max-w-4xl mx-auto bg-white rounded-xl shadow-lg p-6 md:p-8">
+        <!-- Header -->
+        <div class="border-b pb-4 mb-6">
+            <h1 class="text-2xl font-bold text-slate-800">WordPress Auto-Publisher</h1>
+            <p class="text-xs text-slate-500 mt-1">Publikasikan tulisan dan gambar ke WordPress secara instan tanpa masuk ke dashboard.</p>
+        </div>
+        
+        <!-- Form Kredensial Login -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">URL WordPress</label>
+                <input id="wpUrl" type="url" placeholder="https://domainanda.com" class="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Username</label>
+                <input id="wpUser" type="text" placeholder="admin" class="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-600 uppercase mb-1">Application Password</label>
+                <input id="wpPass" type="password" placeholder="xxxx xxxx xxxx xxxx" class="w-full p-2 border rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+        </div>
 
-        // Step 2: Publish Artikel (Menggunakan format ?rest_route=)
-        log.innerText = "Memuat postingan ke WordPress...";
-        const postPayload = {
-            title: title,
-            content: contentHtml,
-            status: status,
-            featured_media: mediaId
-        };
+        <!-- Form Konten Artikel -->
+        <div class="space-y-5">
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Judul Artikel</label>
+                <input id="postTitle" type="text" placeholder="Masukkan judul artikel..." class="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
 
-        const postRes = await fetch(`${url}/?rest_route=/wp/v2/posts`, {
-            method: 'POST',
-            headers: {
-                'Authorization': authHeader,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(postPayload)
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Gambar Utama (Featured Image)</label>
+                <input id="postImage" type="file" accept="image/*" class="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer">
+            </div>
+
+            <!-- WYSIWYG Quill Editor Container -->
+            <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Isi Artikel</label>
+                <div id="quillEditor" class="bg-white rounded-b-lg"></div>
+            </div>
+
+            <!-- Action Bar -->
+            <div class="flex items-center justify-between pt-4 border-t">
+                <div>
+                    <label class="block text-xs text-slate-500 mb-1">Status Publikasi</label>
+                    <select id="postStatus" class="p-2 border rounded-lg text-sm bg-white font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="publish">Langsung Tayang (Publish)</option>
+                        <option value="draft">Simpan Draf (Draft)</option>
+                    </select>
+                </div>
+
+                <button onclick="publishToWordPress()" id="btnSubmit" class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-2.5 rounded-lg transition-colors shadow-md hover:shadow-lg">
+                    Upload ke WordPress
+                </button>
+            </div>
+        </div>
+
+        <!-- Status Notification / Log Area -->
+        <div id="logArea" class="mt-6 hidden p-4 rounded-lg text-sm transition-all"></div>
+    </div>
+
+    <script>
+        // Inisialisasi Quill Editor dengan Toolbar Lengkap
+        const quill = new Quill('#quillEditor', {
+            theme: 'snow',
+            placeholder: 'Tuliskan artikel Anda di sini...',
+            modules: {
+                toolbar: [
+                    [{ 'header': [1, 2, 3, false] }],
+                    ['bold', 'italic', 'underline', 'strike'],
+                    [{ 'color': [] }, { 'background': [] }],
+                    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                    [{ 'align': [] }],
+                    ['link', 'blockquote', 'code-block'],
+                    ['clean']
+                ]
+            }
         });
 
-        if (!postRes.ok) {
-            const errData = await postRes.json().catch(() => ({}));
-            throw new Error(errData.message || `Gagal mempublikasikan artikel (Status ${postRes.status})`);
+        async function publishToWordPress() {
+            const rawUrl = document.getElementById('wpUrl').value.trim();
+            const user = document.getElementById('wpUser').value.trim();
+            const pass = document.getElementById('wpPass').value.trim();
+            const title = document.getElementById('postTitle').value.trim();
+            const imageFile = document.getElementById('postImage').files[0];
+            const status = document.getElementById('postStatus').value;
+            const log = document.getElementById('logArea');
+            const btnSubmit = document.getElementById('btnSubmit');
+
+            // Ambil konten HTML dari Quill Editor
+            const contentHtml = quill.root.innerHTML;
+
+            if (!rawUrl || !user || !pass || !title) {
+                alert("Harap isi URL WordPress, Username, Application Password, dan Judul Artikel!");
+                return;
+            }
+
+            // Bersihkan URL dari akhiran slash
+            const url = rawUrl.replace(/\/$/, "");
+
+            // Tampilkan status loading
+            btnSubmit.disabled = true;
+            btnSubmit.classList.add('opacity-50', 'cursor-not-allowed');
+            log.classList.remove('hidden', 'bg-red-50', 'bg-green-50', 'text-red-700', 'text-green-700');
+            log.classList.add('bg-blue-50', 'text-blue-700');
+            log.innerText = "Memproses pengiriman...";
+
+            // Format Otentikasi Basic Auth
+            const authHeader = 'Basic ' + btoa(user + ':' + pass);
+            
+            // Proxy CORS untuk melewati blokir 404/firewall pada request POST
+            const proxyUrl = "https://corsproxy.io/?";
+
+            let mediaId = null;
+
+            try {
+                // Step 1: Upload Gambar Utama (jika ada file yang dipilih)
+                if (imageFile) {
+                    log.innerText = "Mengunggah gambar utama ke WordPress Media Library...";
+                    const formData = new FormData();
+                    formData.append('file', imageFile);
+
+                    const targetMediaUrl = `${url}/index.php?rest_route=/wp/v2/media`;
+                    const imgRes = await fetch(proxyUrl + encodeURIComponent(targetMediaUrl), {
+                        method: 'POST',
+                        headers: { 
+                            'Authorization': authHeader 
+                        },
+                        body: formData
+                    });
+
+                    if (!imgRes.ok) {
+                        const errData = await imgRes.json().catch(() => ({}));
+                        throw new Error(errData.message || `Gagal mengunggah gambar (Status ${imgRes.status})`);
+                    }
+                    const imgData = await imgRes.json();
+                    mediaId = imgData.id;
+                }
+
+                // Step 2: Publish Artikel ke WordPress
+                log.innerText = "Menerbitkan artikel ke WordPress...";
+                const postPayload = {
+                    title: title,
+                    content: contentHtml,
+                    status: status,
+                    featured_media: mediaId
+                };
+
+                const targetPostUrl = `${url}/index.php?rest_route=/wp/v2/posts`;
+                const postRes = await fetch(proxyUrl + encodeURIComponent(targetPostUrl), {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': authHeader,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(postPayload)
+                });
+
+                if (!postRes.ok) {
+                    const errData = await postRes.json().catch(() => ({}));
+                    throw new Error(errData.message || `Gagal menerbitkan artikel (Status ${postRes.status})`);
+                }
+
+                const postData = await postRes.json();
+
+                // Tampilkan pesan sukses
+                log.classList.remove('bg-blue-50', 'text-blue-700');
+                log.classList.add('bg-green-50', 'text-green-700');
+                log.innerHTML = `<strong>Berhasil!</strong> Artikel telah diterbitkan.<br><a href="${postData.link}" target="_blank" class="underline font-semibold mt-1 inline-block">Buka Artikel (${postData.link})</a>`;
+
+            } catch (err) {
+                // Tampilkan pesan error
+                log.classList.remove('bg-blue-50', 'text-blue-700');
+                log.classList.add('bg-red-50', 'text-red-700');
+                log.innerText = "Terjadi Kesalahan: " + err.message;
+            } finally {
+                // Kembalikan tombol ke kondisi semula
+                btnSubmit.disabled = false;
+                btnSubmit.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
         }
-
-        const postData = await postRes.json();
-
-        log.classList.remove('bg-blue-50', 'text-blue-700');
-        log.classList.add('bg-green-50', 'text-green-700');
-        log.innerHTML = `<strong>Berhasil!</strong> Artikel telah diterbitkan.<br><a href="${postData.link}" target="_blank" class="underline font-bold">Buka Artikel (${postData.link})</a>`;
-
-    } catch (err) {
-        log.classList.remove('bg-blue-50', 'text-blue-700');
-        log.classList.add('bg-red-50', 'text-red-700');
-        log.innerText = "Terjadi Kesalahan: " + err.message;
-    }
-}
+    </script>
+</body>
+</html>
